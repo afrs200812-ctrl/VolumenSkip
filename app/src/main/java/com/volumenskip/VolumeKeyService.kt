@@ -42,6 +42,7 @@ class VolumeKeyService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        ScreenOffService.start(this)
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {

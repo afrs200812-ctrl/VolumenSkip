@@ -1,6 +1,11 @@
 package com.volumenskip
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.widget.ScrollView
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -38,9 +43,13 @@ class MainActivity : Activity() {
 
         root.addView(TextView(this).apply {
             text = "\nCon música sonando:\n\n" +
-                "• Mantén  VOLUMEN +  → siguiente canción ⏭\n" +
-                "• Mantén  VOLUMEN −  → canción anterior ⏮\n" +
-                "• Toque corto → volumen normal\n"
+                "PANTALLA ENCENDIDA\n" +
+                "• Mantén  VOLUMEN +  → siguiente ⏭\n" +
+                "• Mantén  VOLUMEN −  → anterior ⏮\n\n" +
+                "PANTALLA APAGADA\n" +
+                "• Doble toque rápido (o mantener) VOL +  → siguiente ⏭\n" +
+                "• Doble toque rápido (o mantener) VOL −  → anterior ⏮\n\n" +
+                "Un toque corto siempre cambia el volumen normal.\n"
             textSize = 16f
             setTextColor(Color.parseColor("#C9D1D9"))
         })
@@ -55,6 +64,22 @@ class MainActivity : Activity() {
             text = "Activar en Accesibilidad"
             setOnClickListener {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        })
+
+        root.addView(Button(this).apply {
+            text = "Quitar ahorro de batería (recomendado)"
+            setOnClickListener {
+                try {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:$packageName")
+                        )
+                    )
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }
             }
         })
 
@@ -78,7 +103,17 @@ class MainActivity : Activity() {
         })
         root.addView(row)
 
-        setContentView(root)
+        setContentView(ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#111418"))
+            addView(root)
+        })
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+        ScreenOffService.start(this)
     }
 
     override fun onResume() {

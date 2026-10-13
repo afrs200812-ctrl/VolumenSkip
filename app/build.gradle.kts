@@ -11,8 +11,20 @@ android {
         applicationId = "com.volumenskip"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1-prototipo"
+        versionCode = 2
+        versionName = "0.2-pantalla-apagada"
+    }
+
+    signingConfigs {
+        create("fija") {
+            storeFile = file("volumenskip.jks")
+            storePassword = "volumenskip"
+            keyAlias = "volumenskip"
+            keyPassword = "volumenskip"
+        }
+    }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("fija") }
     }
 
     compileOptions {
