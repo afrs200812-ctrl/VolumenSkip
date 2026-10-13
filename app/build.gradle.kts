@@ -11,8 +11,8 @@ android {
         applicationId = "com.volumenskip"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4-icono"
+        versionCode = 5
+        versionName = "0.5-boton-apagar"
     }
 
     signingConfigs {

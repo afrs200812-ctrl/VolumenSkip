@@ -92,7 +92,16 @@ class ScreenOffService : Service() {
         isRunning = true
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Botón "Desactivar" de la notificación
+        if (intent?.action == ACTION_STOP) {
+            AppSwitch.setOn(this, false)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         isRunning = false
@@ -183,6 +192,16 @@ class ScreenOffService : Service() {
             .setContentText("Cambia canciones con el volumen, incluso con la pantalla apagada")
             .setContentIntent(open)
             .setOngoing(true)
+            .addAction(
+                Notification.Action.Builder(
+                    null as android.graphics.drawable.Icon?, "Desactivar",
+                    PendingIntent.getService(
+                        this, 1,
+                        Intent(this, ScreenOffService::class.java).setAction(ACTION_STOP),
+                        PendingIntent.FLAG_IMMUTABLE
+                    )
+                ).build()
+            )
             .build()
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
@@ -198,10 +217,17 @@ class ScreenOffService : Service() {
 
         @Volatile var isRunning = false
 
+        const val ACTION_STOP = "com.volumenskip.STOP"
+
         fun start(context: Context) {
+            if (!AppSwitch.isOn(context)) return
             try {
                 context.startForegroundService(Intent(context, ScreenOffService::class.java))
             } catch (_: Exception) { }
+        }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, ScreenOffService::class.java))
         }
     }
 }

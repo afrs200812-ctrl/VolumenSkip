@@ -22,6 +22,7 @@ import android.widget.TextView
 class MainActivity : Activity() {
 
     private lateinit var status: TextView
+    private lateinit var power: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,6 +54,21 @@ class MainActivity : Activity() {
             textSize = 16f
             setTextColor(Color.parseColor("#C9D1D9"))
         })
+
+        // Interruptor general: ENCENDER / APAGAR la app
+        power = Button(this).apply {
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(pad, pad / 2, pad, pad / 2)
+            setOnClickListener {
+                AppSwitch.setOn(this@MainActivity, !AppSwitch.isOn(this@MainActivity))
+                refreshPower()
+            }
+        }
+        root.addView(power, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
 
         status = TextView(this).apply {
             textSize = 18f
@@ -118,9 +134,16 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        refreshPower()
         val on = isServiceEnabled()
         status.text = if (on) "✅ Servicio ACTIVO" else "⚠️ Servicio desactivado"
         status.setTextColor(Color.parseColor(if (on) "#3FB950" else "#F0883E"))
+    }
+
+    private fun refreshPower() {
+        val on = AppSwitch.isOn(this)
+        power.text = if (on) "🟢  ENCENDIDA  (tocar para apagar)" else "🔴  APAGADA  (tocar para encender)"
+        power.setBackgroundColor(Color.parseColor(if (on) "#238636" else "#6E2B2B"))
     }
 
     private fun isServiceEnabled(): Boolean {

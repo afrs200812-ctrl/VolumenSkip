@@ -43,7 +43,7 @@ class VolumeKeyService : AccessibilityService() {
         super.onServiceConnected()
         audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         isRunning = true
-        ScreenOffService.start(this)
+        ScreenOffService.start(this)   // solo arranca si la app está encendida
     }
 
     override fun onDestroy() {
@@ -56,6 +56,8 @@ class VolumeKeyService : AccessibilityService() {
         if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) {
             return false
         }
+        // App apagada desde el interruptor: los botones funcionan normal.
+        if (!AppSwitch.isOn(this) && pressedKey == null) return false
         // Solo actuamos si hay música sonando; si no, el volumen funciona normal.
         if (!audio.isMusicActive && pressedKey == null) return false
 
