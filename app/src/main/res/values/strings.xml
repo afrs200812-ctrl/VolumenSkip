@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VolumenSkip</string>
+    <string name="service_label">VolumenSkip – cambiar canción</string>
+    <string name="service_description">Mantén presionado Volumen + para pasar a la siguiente canción y Volumen − para regresar a la anterior. Una pulsación corta sigue cambiando el volumen normalmente.</string>
+</resources>
