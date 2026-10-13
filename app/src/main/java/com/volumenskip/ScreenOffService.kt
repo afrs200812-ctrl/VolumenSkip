@@ -10,10 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.database.ContentObserver
 import android.media.AudioManager
-import android.media.VolumeProvider
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -22,65 +20,51 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.provider.Settings
 import android.view.KeyEvent
 
 /**
  * Funciona con la PANTALLA APAGADA.
  *
- * Al apagar la pantalla (y si hay música sonando) la app crea una sesión
- * multimedia con su propio "control de volumen". Android le entrega entonces
- * los botones de volumen a esta sesión, aunque la pantalla esté apagada.
+ * Con la pantalla apagada Android no deja a ninguna app leer los botones,
+ * pero los botones SÍ cambian el volumen de la música. Este servicio vigila
+ * esos cambios:
  *
- *  - Pulsación rápida doble  o  mantener  Vol +  -> siguiente canción
- *  - Pulsación rápida doble  o  mantener  Vol −  -> canción anterior
- *  - Una sola pulsación                            -> volumen normal
+ *  - 2 cambios seguidos y rápidos hacia arriba (doble toque o mantener Vol +) -> siguiente
+ *  - 2 cambios seguidos y rápidos hacia abajo  (doble toque o mantener Vol −) -> anterior
+ *  - 1 solo cambio -> no hace nada (volumen normal)
  *
- * Al encender la pantalla se desactiva y vuelve a mandar VolumeKeyService.
+ * Después de cambiar de canción devuelve el volumen al que había antes.
  */
 class ScreenOffService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var audio: AudioManager
     private lateinit var power: PowerManager
-    private var session: MediaSession? = null
-    private var sessionOn = false
+    private lateinit var wakeLock: PowerManager.WakeLock
 
-    // Detección de gesto
-    private var pendingDir = 0
-    private var firstPressAt = 0L
-    private var lockUntil = 0L
+    private var lastVol = -1
+    private var stepDir = 0
+    private var stepCount = 0
+    private var firstStepAt = 0L
+    private var baseVol = -1
+    private var ignoreUntil = 0L
 
-    private val singlePress = Runnable {
-        // Solo hubo una pulsación: cambiar volumen normal
-        if (pendingDir != 0) {
-            audio.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                if (pendingDir > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
-                0
-            )
-        }
-        pendingDir = 0
+    // Fuente 1: aviso del sistema cada vez que cambia el volumen
+    private val volumeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) { checkVolume() }
     }
 
-    private val watcher = object : Runnable {
-        override fun run() {
-            updateSession()
-            if (!power.isInteractive) handler.postDelayed(this, 3000)
-        }
+    // Fuente 2 (respaldo): cambios en los ajustes del sistema
+    private val settingsObserver = object : ContentObserver(handler) {
+        override fun onChange(selfChange: Boolean) { checkVolume() }
     }
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
-            when (i.action) {
-                Intent.ACTION_SCREEN_OFF -> {
-                    handler.removeCallbacks(watcher)
-                    handler.post(watcher)
-                }
-                Intent.ACTION_SCREEN_ON -> {
-                    handler.removeCallbacks(watcher)
-                    setSessionActive(false)
-                }
-            }
+            if (i.action == Intent.ACTION_SCREEN_OFF) onScreenOff()
+            resetGesture()
+            lastVol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         }
     }
 
@@ -88,101 +72,93 @@ class ScreenOffService : Service() {
         super.onCreate()
         audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VolumenSkip:vol")
         startAsForeground()
-        createSession()
-        registerReceiver(screenReceiver, IntentFilter().apply {
+        lastVol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+
+        val volFilter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+        val scrFilter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
-        })
-        if (!power.isInteractive) handler.post(watcher)
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(volumeReceiver, volFilter, Context.RECEIVER_EXPORTED)
+            registerReceiver(screenReceiver, scrFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(volumeReceiver, volFilter)
+            registerReceiver(screenReceiver, scrFilter)
+        }
+        contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, settingsObserver)
+        isRunning = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
+        isRunning = false
         handler.removeCallbacksAndMessages(null)
+        try { unregisterReceiver(volumeReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
-        session?.release()
+        try { contentResolver.unregisterContentObserver(settingsObserver) } catch (_: Exception) {}
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // ---------- Sesión multimedia con volumen propio ----------
-
-    private fun createSession() {
-        val s = MediaSession(this, "VolumenSkip")
-        s.setPlaybackToRemote(object : VolumeProvider(VOLUME_CONTROL_RELATIVE, 100, 50) {
-            override fun onAdjustVolume(direction: Int) {
-                if (direction != 0) onVolumeKey(direction)
-            }
-        })
-        session = s
-    }
-
-    private fun updateSession() {
-        // Activo solo si la pantalla está apagada y hay música sonando
-        setSessionActive(!power.isInteractive && audio.isMusicActive)
-    }
-
-    private fun setSessionActive(on: Boolean) {
-        val s = session ?: return
-        if (on == sessionOn) return
-        sessionOn = on
-        if (on) {
-            s.isActive = true
-            setState(PlaybackState.STATE_PLAYING)
-        } else {
-            setState(PlaybackState.STATE_PAUSED)
-            s.isActive = false
+    /** Si el volumen está al máximo, Vol + no produce cambio: lo bajamos un punto. */
+    private fun onScreenOff() {
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (audio.isMusicActive && audio.getStreamVolume(AudioManager.STREAM_MUSIC) >= max) {
+            ignoreUntil = SystemClock.elapsedRealtime() + 300
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, max - 1, 0)
         }
     }
 
-    private fun setState(state: Int) {
-        session?.setPlaybackState(
-            PlaybackState.Builder().setState(state, 0, 1f).build()
-        )
+    private fun resetGesture() {
+        stepDir = 0
+        stepCount = 0
     }
 
-    /** Tras cambiar de canción la app de música puede "quitarnos" el volumen; lo recuperamos. */
-    private fun reclaimVolume() {
-        if (!sessionOn) return
-        setState(PlaybackState.STATE_PAUSED)
-        setState(PlaybackState.STATE_PLAYING)
-    }
+    private fun checkVolume() {
+        val v = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val prev = lastVol
+        lastVol = v
+        if (prev < 0 || v == prev) return
 
-    // ---------- Gestos ----------
+        val now = SystemClock.elapsedRealtime()
+        if (now < ignoreUntil) return
+        // Con pantalla encendida se encarga el servicio de Accesibilidad.
+        if (power.isInteractive && VolumeKeyService.isRunning) return
+        if (!audio.isMusicActive) return
+        if (!wakeLock.isHeld) wakeLock.acquire(3000)
 
-    private fun onVolumeKey(dir: Int) {
-        val now = SystemClock.uptimeMillis()
-        if (now < lockUntil) {          // ignorar repeticiones tras un salto
-            lockUntil = now + LOCK_MS
-            return
+        val dir = if (v > prev) 1 else -1
+        if (dir != stepDir || now - firstStepAt > GESTURE_MS) {
+            stepDir = dir
+            stepCount = 0
+            firstStepAt = now
+            baseVol = prev
         }
-        if (pendingDir == dir && now - firstPressAt < GESTURE_MS) {
-            // Segunda pulsación rápida o botón mantenido -> cambiar canción
-            handler.removeCallbacks(singlePress)
-            pendingDir = 0
-            lockUntil = now + LOCK_MS
-            skip(dir)
-            return
-        }
-        // Primera pulsación: esperamos a ver si llega otra
-        handler.removeCallbacks(singlePress)
-        if (pendingDir != 0 && pendingDir != dir) singlePress.run()
-        pendingDir = dir
-        firstPressAt = now
-        handler.postDelayed(singlePress, GESTURE_MS)
+        stepCount++
+        if (stepCount >= 2) skip(dir, now)
     }
 
-    private fun skip(dir: Int) {
+    private fun skip(dir: Int, now: Long) {
+        resetGesture()
         val code = if (dir > 0) KeyEvent.KEYCODE_MEDIA_NEXT else KeyEvent.KEYCODE_MEDIA_PREVIOUS
         val t = SystemClock.uptimeMillis()
         audio.dispatchMediaKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0))
         audio.dispatchMediaKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0))
         vibrate()
-        handler.postDelayed({ reclaimVolume() }, 1500)
-        handler.postDelayed({ reclaimVolume() }, 4000)
+
+        // Devolver el volumen como estaba (si el dedo sigue presionando, se repite al final)
+        val restore = baseVol.coerceIn(0, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) - 1)
+        ignoreUntil = now + LOCK_MS
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, restore, 0)
+        handler.postDelayed({
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, restore, 0)
+            lastVol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        }, LOCK_MS - 200)
     }
 
     @Suppress("DEPRECATION")
@@ -217,8 +193,10 @@ class ScreenOffService : Service() {
 
     companion object {
         private const val CHANNEL = "volumenskip"
-        const val GESTURE_MS = 450L
-        const val LOCK_MS = 700L
+        const val GESTURE_MS = 700L
+        const val LOCK_MS = 1500L
+
+        @Volatile var isRunning = false
 
         fun start(context: Context) {
             try {

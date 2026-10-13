@@ -42,7 +42,13 @@ class VolumeKeyService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        isRunning = true
         ScreenOffService.start(this)
+    }
+
+    override fun onDestroy() {
+        isRunning = false
+        super.onDestroy()
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -96,6 +102,7 @@ class VolumeKeyService : AccessibilityService() {
     override fun onInterrupt() {}
 
     companion object {
+        @Volatile var isRunning = false
         const val LONG_PRESS_MS = 600L
 
         /** Usado por la pantalla principal para los botones de prueba. */
