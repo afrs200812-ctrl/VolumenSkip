@@ -12,10 +12,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
+      # ÍCONO MANUAL: si subes una imagen (png/jpg/jpeg/webp) a la carpeta
+      # principal del repositorio, se usa como ícono. Si hay varias, la más reciente.
+      - name: Usar tu imagen como ícono (si subiste una)
+        run: |
+          shopt -s nullglob nocaseglob
+          BEST=""; BEST_T=0
+          for f in *.png *.jpg *.jpeg *.webp; do
+            t=$(git log -1 --format=%ct -- "$f"); t=${t:-0}
+            if [ "$t" -ge "$BEST_T" ]; then BEST="$f"; BEST_T=$t; fi
+          done
+          if [ -z "$BEST" ]; then echo "Sin imagen: se usa el ícono de diseño."; exit 0; fi
+          echo "Usando como ícono: $BEST"
+          command -v convert >/dev/null || (sudo apt-get update -q && sudo apt-get install -y -q imagemagick)
+          RES=app/src/main/res
+          rm -rf $RES/mipmap-anydpi-v26
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            d=${pair%%:*}; s=${pair##*:}; c=$((s/2))
+            mkdir -p $RES/mipmap-$d
+            convert "$BEST" -auto-orient -resize ${s}x${s}^ -gravity center -extent ${s}x${s} $RES/mipmap-$d/ic_launcher.png
+            convert $RES/mipmap-$d/ic_launcher.png \
+              \( -size ${s}x${s} xc:none -fill white -draw "circle $c,$c $c,0" \) \
+              -alpha set -compose DstIn -composite $RES/mipmap-$d/ic_launcher_round.png
+          done
+
       - name: Compilar
         run: |
           chmod +x gradlew
