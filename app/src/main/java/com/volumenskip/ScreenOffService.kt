@@ -139,31 +139,33 @@ class ScreenOffService : Service() {
         if (now < ignoreUntil) return
         // Con pantalla encendida se encarga el servicio de Accesibilidad.
         if (power.isInteractive && VolumeKeyService.isRunning) return
-        if (!audio.isMusicActive) return
+        if (!audio.isMusicActive) {
+            log(this, "cambio de volumen ignorado: no detecto música sonando")
+            return
+        }
         if (!wakeLock.isHeld) wakeLock.acquire(3000)
 
         val dir = if (v > prev) 1 else -1
         val gap = now - lastStepAt
         lastStepAt = now
-        if (dir != stepDir || gap > GESTURE_MS) {
+        if (dir != stepDir || gap > HOLD_GAP_MS) {
             // Empieza una pulsación nueva
             stepDir = dir
-            stepCount = 0
+            stepCount = 1
             firstStepAt = now
             baseVol = prev
-        } else if (gap <= HOLD_GAP_MS) {
-            // Cambios casi seguidos = el botón se está MANTENIENDO
-            stepCount++
         } else {
-            // Pausa entre toques: no es mantener, se reinicia la cuenta
-            stepCount = 0
+            // Siguen llegando cambios sin pausa = el botón se está MANTENIENDO
+            stepCount++
         }
-        // Solo mantener presionado cambia la canción (el doble toque ya no).
+        log(this, "${if (dir > 0) "▲" else "▼"} vol $prev→$v  pausa ${if (gap > 9999) "-" else "${gap}ms"}  cuenta $stepCount")
+        // Un toque = 1 cambio, doble toque = 2 cambios. Mantener = 3 o más seguidos.
         if (stepCount >= HOLD_STEPS) skip(dir, now)
     }
 
     private fun skip(dir: Int, now: Long) {
         resetGesture()
+        log(this, if (dir > 0) "⏭ SIGUIENTE canción" else "⏮ ANTERIOR / reiniciar canción")
         val code = if (dir > 0) KeyEvent.KEYCODE_MEDIA_NEXT else KeyEvent.KEYCODE_MEDIA_PREVIOUS
         val t = SystemClock.uptimeMillis()
         audio.dispatchMediaKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0))
@@ -222,9 +224,20 @@ class ScreenOffService : Service() {
 
     companion object {
         private const val CHANNEL = "volumenskip"
-        const val GESTURE_MS = 1000L   // máx. entre cambios de una misma pulsación
-        const val HOLD_GAP_MS = 250L   // cambios más rápidos que esto = botón mantenido
-        const val HOLD_STEPS = 2       // cuántos cambios rápidos hacen falta
+        const val HOLD_GAP_MS = 700L   // pausa máxima entre cambios mientras se mantiene
+        const val HOLD_STEPS = 3       // cambios seguidos que cuentan como "mantener"
+
+        // Registro de lo que detecta la app (se ve en la pantalla principal)
+        private const val LOG_KEY = "registro"
+        fun log(context: Context, msg: String) {
+            val p = context.getSharedPreferences("volumenskip", Context.MODE_PRIVATE)
+            val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            val lines = (p.getString(LOG_KEY, "") ?: "").lines().filter { it.isNotBlank() }.takeLast(14)
+            p.edit().putString(LOG_KEY, (lines + "$t  $msg").joinToString("\n")).apply()
+        }
+        fun readLog(context: Context): String =
+            context.getSharedPreferences("volumenskip", Context.MODE_PRIVATE)
+                .getString(LOG_KEY, "")?.ifBlank { null } ?: "(todavía nada)"
         const val LOCK_MS = 1500L
 
         @Volatile var isRunning = false

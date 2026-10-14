@@ -23,6 +23,7 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var power: Button
+    private lateinit var logView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,6 +120,17 @@ class MainActivity : Activity() {
         })
         root.addView(row)
 
+        root.addView(TextView(this).apply {
+            text = "\nRegistro con pantalla apagada (para revisar si falla):"
+            setTextColor(Color.parseColor("#8B949E"))
+        })
+        logView = TextView(this).apply {
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#C9D1D9"))
+        }
+        root.addView(logView)
+
         setContentView(ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#111418"))
             addView(root)
@@ -135,6 +147,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshPower()
+        logView.text = ScreenOffService.readLog(this)
         val on = isServiceEnabled()
         status.text = if (on) "✅ Servicio ACTIVO" else "⚠️ Servicio desactivado"
         status.setTextColor(Color.parseColor(if (on) "#3FB950" else "#F0883E"))
