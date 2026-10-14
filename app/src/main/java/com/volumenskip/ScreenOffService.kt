@@ -160,7 +160,8 @@ class ScreenOffService : Service() {
         }
         log(this, "${if (dir > 0) "▲" else "▼"} vol $prev→$v  pausa ${if (gap > 9999) "-" else "${gap}ms"}  cuenta $stepCount")
         // Un toque = 1 cambio, doble toque = 2 cambios. Mantener = 3 o más seguidos.
-        if (stepCount >= HOLD_STEPS) skip(dir, now)
+        // Mantener = muchos cambios seguidos Y durante un rato (no basta con 3 toques rápidos)
+        if (stepCount >= HOLD_STEPS && now - firstStepAt >= HOLD_MIN_MS) skip(dir, now)
     }
 
     private fun skip(dir: Int, now: Long) {
@@ -224,8 +225,9 @@ class ScreenOffService : Service() {
 
     companion object {
         private const val CHANNEL = "volumenskip"
-        const val HOLD_GAP_MS = 700L   // pausa máxima entre cambios mientras se mantiene
-        const val HOLD_STEPS = 3       // cambios seguidos que cuentan como "mantener"
+        const val HOLD_GAP_MS = 450L   // pausa máxima entre cambios mientras se mantiene
+        const val HOLD_STEPS = 4       // cambios seguidos mínimos para "mantener"
+        const val HOLD_MIN_MS = 800L   // tiempo mínimo que debe durar la pulsación sostenida
 
         // Registro de lo que detecta la app (se ve en la pantalla principal)
         private const val LOG_KEY = "registro"
