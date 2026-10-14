@@ -48,8 +48,8 @@ class MainActivity : Activity() {
                 "• Mantén  VOLUMEN +  → siguiente ⏭\n" +
                 "• Mantén  VOLUMEN −  → anterior ⏮\n\n" +
                 "PANTALLA APAGADA\n" +
-                "• Doble toque rápido (o mantener) VOL +  → siguiente ⏭\n" +
-                "• Doble toque rápido (o mantener) VOL −  → anterior ⏮\n\n" +
+                "• Mantén  VOLUMEN +  → siguiente ⏭\n" +
+                "• Mantén  VOLUMEN −  → anterior ⏮\n\n" +
                 "Un toque corto siempre cambia el volumen normal.\n"
             textSize = 16f
             setTextColor(Color.parseColor("#C9D1D9"))

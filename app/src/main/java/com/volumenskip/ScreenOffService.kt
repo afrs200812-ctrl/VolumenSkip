@@ -30,9 +30,9 @@ import android.view.KeyEvent
  * pero los botones SÍ cambian el volumen de la música. Este servicio vigila
  * esos cambios:
  *
- *  - 2 cambios seguidos y rápidos hacia arriba (doble toque o mantener Vol +) -> siguiente
- *  - 2 cambios seguidos y rápidos hacia abajo  (doble toque o mantener Vol −) -> anterior
- *  - 1 solo cambio -> no hace nada (volumen normal)
+ *  - Mantener Vol + -> siguiente
+ *  - Mantener Vol − -> anterior
+ *  - Toques sueltos o dobles -> volumen normal (no cambian la canción)
  *
  * Después de cambiar de canción devuelve el volumen al que había antes.
  */
@@ -47,6 +47,7 @@ class ScreenOffService : Service() {
     private var stepDir = 0
     private var stepCount = 0
     private var firstStepAt = 0L
+    private var lastStepAt = 0L
     private var baseVol = -1
     private var ignoreUntil = 0L
 
@@ -142,14 +143,23 @@ class ScreenOffService : Service() {
         if (!wakeLock.isHeld) wakeLock.acquire(3000)
 
         val dir = if (v > prev) 1 else -1
-        if (dir != stepDir || now - firstStepAt > GESTURE_MS) {
+        val gap = now - lastStepAt
+        lastStepAt = now
+        if (dir != stepDir || gap > GESTURE_MS) {
+            // Empieza una pulsación nueva
             stepDir = dir
             stepCount = 0
             firstStepAt = now
             baseVol = prev
+        } else if (gap <= HOLD_GAP_MS) {
+            // Cambios casi seguidos = el botón se está MANTENIENDO
+            stepCount++
+        } else {
+            // Pausa entre toques: no es mantener, se reinicia la cuenta
+            stepCount = 0
         }
-        stepCount++
-        if (stepCount >= 2) skip(dir, now)
+        // Solo mantener presionado cambia la canción (el doble toque ya no).
+        if (stepCount >= HOLD_STEPS) skip(dir, now)
     }
 
     private fun skip(dir: Int, now: Long) {
@@ -212,7 +222,9 @@ class ScreenOffService : Service() {
 
     companion object {
         private const val CHANNEL = "volumenskip"
-        const val GESTURE_MS = 700L
+        const val GESTURE_MS = 1000L   // máx. entre cambios de una misma pulsación
+        const val HOLD_GAP_MS = 250L   // cambios más rápidos que esto = botón mantenido
+        const val HOLD_STEPS = 2       // cuántos cambios rápidos hacen falta
         const val LOCK_MS = 1500L
 
         @Volatile var isRunning = false
